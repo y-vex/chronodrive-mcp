@@ -21,16 +21,14 @@ async def list_tools() -> list[Tool]:
             name="search",
             description=(
                 "Recherche des produits Chronodrive par mot-clé libre. "
-                "Retourne les meilleurs candidats avec nom, marque, taille, prix, score."
+                "Retourne les résultats classés par Chronodrive avec nom, marque, taille, prix et flags."
             ),
             inputSchema={
                 "type": "object",
                 "required": ["query"],
                 "properties": {
-                    "query":    {"type": "string",  "description": "Terme de recherche libre, ex: 'tomates cerises', 'lait demi-écrémé'"},
-                    "quantity": {"type": "number",  "description": "Quantité souhaitée (défaut: 1)"},
-                    "unit":     {"type": "string",  "description": "Unité: 'g', 'ml', ou 'pcs' (défaut: 'pcs')"},
-                    "top_n":    {"type": "integer", "description": "Nombre de résultats à retourner (défaut: 5)"},
+                    "query": {"type": "string",  "description": "Terme de recherche libre, ex: 'tomates cerises', 'lait demi-écrémé'"},
+                    "top_n": {"type": "integer", "description": "Nombre de résultats à retourner (défaut: 5)"},
                 },
             },
         ),
@@ -125,14 +123,19 @@ def _handle(name: str, args: dict) -> str:
             prices = p.get("prices") or {}
             flags  = p.get("flags") or {}
             price  = prices.get("defaultPrice")
+            stock  = p.get("stock", "UNKNOWN")
             results.append({
-                "name":      labels.get("productLabel", "").strip(),
-                "productId": str(p.get("id") or ""),
-                "brand":     labels.get("brandLabel", "").strip(),
-                "size":      labels.get("unitQuantityLabel", ""),
-                "price":     f"{float(price):.2f}€" if price else None,
+                "name":           labels.get("productLabel", "").strip(),
+                "productId":      str(p.get("id") or ""),
+                "brand":          labels.get("brandLabel", "").strip(),
+                "size":           labels.get("unitQuantityLabel", ""),
+                "price":          f"{float(price):.2f}€" if price else None,
+                "pricePerKg":     f"{float(prices['pricePerUnitMeasure']):.2f}€/kg" if prices.get("pricePerUnitMeasure") else None,
+                "stock":          stock,
+                "remainingStock": p.get("remainingStock", 0),
                 "flags": {
                     "fresh":   flags.get("isFresh", False),
+                    "frozen":  flags.get("isFrozen", False),
                     "organic": flags.get("isOrganic", False),
                     "french":  flags.get("isFrench", False),
                 },

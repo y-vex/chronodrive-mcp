@@ -8,7 +8,7 @@ Search products, add them to your cart, and reset it — all from a conversation
 
 | Tool | Description |
 |---|---|
-| `search` | Free-text product search. Returns ranked candidates with price, stock, flags, promo, and more. |
+| `search` | Free-text product search. Returns top results ordered by Chronodrive's own ranking, with price and flags. |
 | `add_to_cart` | Add a product to the cart by `productId` and quantity. |
 | `remove_from_cart` | Remove a specific product from the cart by `productId`. |
 | `get_cart` | Return current cart contents — products, quantities, and total. |
@@ -17,23 +17,14 @@ Search products, add them to your cart, and reset it — all from a conversation
 
 ### `search` response fields
 
-Each candidate includes:
+Each result includes:
 
 - `name`, `brand`, `size`, `productId`
 - `price` — unit price
-- `price_per_kg` — price per kg or litre
-- `lowest_30d` — lowest price over the past 30 days
-- `promo` — current promotion label if any
+- `pricePerKg` — price per kg or litre
 - `stock` — `HIGH_STOCK`, `LOW_STOCK`, etc.
-- `flags` — `fresh`, `organic`, `french`, `local`, `new`
-- `origin` — country of origin
-- `dims` — packaging dimensions (weight, height, length, width)
-- `complementary` — IDs of suggested complementary products
-- `substitutions` — IDs of substitution products
-- `units_to_add` — how many packs to reach the requested quantity
-- `score` — relevance score (word overlap minus noise penalty)
-
-Frozen products, out-of-stock items, and processed/ready-made products (via a keyword blacklist) are filtered out automatically.
+- `remainingStock` — number of units available
+- `flags` — `fresh`, `frozen`, `organic`, `french`
 
 ## Use case: meal-based grocery automation
 
@@ -52,7 +43,6 @@ Here are my 3 meals for the week: [pasta bolognese for 4, chicken stir-fry for 4
 Consolidate the ingredients, search for each one on Chronodrive, and add them to my cart.
 ```
 
-The assistant handles unit consolidation (e.g. garlic needed in two recipes summed into one search), pack size calculation (how many 500 g bags to cover 800 g), and filtering out processed or frozen variants that don't match a raw ingredient.
 
 ## Setup
 
