@@ -113,16 +113,31 @@ def _handle(name: str, args: dict) -> str:
         return f"Panier vidé : {removed} supprimé(s), {failed} échec(s)"
 
     if name == "search":
-        query    = args["query"]
-        quantity = int(args.get("quantity", 1))
-        unit     = args.get("unit", "pcs")
-        top_n    = int(args.get("top_n", 5))
-        session  = cd.ensure_session()
+        query   = args["query"]
+        top_n   = int(args.get("top_n", 5))
+        session = cd.ensure_session()
         products = cd.search_products(query, session)
         if not products:
             return json.dumps({"query": query, "results": []}, ensure_ascii=False)
-        candidates = cd.pick_candidates(products, query, unit, quantity, top_n=top_n)
-        return json.dumps({"query": query, "results": candidates}, ensure_ascii=False, indent=2)
+        results = []
+        for p in products[:top_n]:
+            labels = p.get("labels") or {}
+            prices = p.get("prices") or {}
+            flags  = p.get("flags") or {}
+            price  = prices.get("defaultPrice")
+            results.append({
+                "name":      labels.get("productLabel", "").strip(),
+                "productId": str(p.get("id") or ""),
+                "brand":     labels.get("brandLabel", "").strip(),
+                "size":      labels.get("unitQuantityLabel", ""),
+                "price":     f"{float(price):.2f}€" if price else None,
+                "flags": {
+                    "fresh":   flags.get("isFresh", False),
+                    "organic": flags.get("isOrganic", False),
+                    "french":  flags.get("isFrench", False),
+                },
+            })
+        return json.dumps({"query": query, "results": results}, ensure_ascii=False, indent=2)
 
     if name == "add_to_cart":
         product_id = args["product_id"]

@@ -2,7 +2,7 @@
 Chronodrive API client — authentication, product search, cart management.
 All configuration via environment variables (see .env.example).
 """
-import re, os, json, math, secrets, hashlib, base64
+import re, os, json, secrets, hashlib, base64
 from pathlib import Path
 
 import requests
@@ -66,7 +66,6 @@ BASE_HEADERS = {
     "Accept":                  "application/json",
 }
 
-_NOISE = {"de", "du", "des", "le", "la", "les", "au", "aux", "et", "en", "un", "une"}
 
 
 # ── Authentication ─────────────────────────────────────────────────────────────
@@ -138,39 +137,6 @@ def ensure_session() -> dict:
     return session
 
 
-# ── Scoring ────────────────────────────────────────────────────────────────────
-
-def score_product(name: str, search_terms: str) -> float:
-    sw = set(w for w in re.split(r"\W+", search_terms.lower()) if w)
-    nw = set(w for w in re.split(r"\W+", name.lower()) if w)
-    matched = sw & nw
-    extra = nw - sw - _NOISE
-    return len(matched) - 0.35 * len(extra)
-
-def _pkg_grams(p: dict) -> float | None:
-    uql = (p.get("labels") or {}).get("unitQuantityLabel", "").lower()
-    for pat, mult in [
-        (r"(\d+[\.,]?\d*)\s*kg", 1000), (r"(\d+[\.,]?\d*)\s*l\b", 1000),
-        (r"(\d+[\.,]?\d*)\s*g\b", 1),   (r"(\d+[\.,]?\d*)\s*ml\b", 1),
-        (r"(\d+[\.,]?\d*)\s*cl\b", 10),
-    ]:
-        m = re.search(pat, uql)
-        if m:
-            return float(m.group(1).replace(",", ".")) * mult
-    w = (p.get("packaging") or {}).get("weight", 0)
-    return w * 1000 if w else None
-
-def _pkg_pcs(p: dict) -> float:
-    labels = p.get("labels") or {}
-    for text in [labels.get("portionLabel", ""), labels.get("unitQuantityLabel", "")]:
-        t = text.lower()
-        for pat in [r"(\d+)\s*pièces?", r"x\s*(\d+)", r"lot\s*de\s*(\d+)", r"(\d+)\s*unités?"]:
-            m = re.search(pat, t)
-            if m:
-                return float(m.group(1))
-    return 1.0
-
-
 # ── Product search ─────────────────────────────────────────────────────────────
 
 def search_products(query: str, session: dict) -> list[dict]:
@@ -191,75 +157,6 @@ def search_products(query: str, session: dict) -> list[dict]:
         return []
     return r.json().get("content", [])
 
-def pick_candidates(products: list, search_terms: str, unit: str, quantity: int,
-                    top_n: int = 3) -> list[dict]:
-    scored = []
-    for p in products:
-        labels = p.get("labels") or {}
-        name   = labels.get("productLabel", "").strip()
-        if not name:
-            continue
-        if p.get("maxCartQuantity") == 0 or p.get("stock") == "NO_STOCK":
-            continue
-        s = score_product(name, search_terms)
-
-        size      = labels.get("unitQuantityLabel", "")
-        prices    = p.get("prices") or {}
-        price_raw = prices.get("defaultPrice", 0)
-        flags     = p.get("flags") or {}
-        chars     = p.get("characteristics") or {}
-        pkg_info  = p.get("packaging") or {}
-        anim      = p.get("animation") or {}
-
-        if unit in ("g", "ml"):
-            pkg = _pkg_grams(p)
-            units_to_add = math.ceil(quantity / pkg) if pkg else 1
-        else:
-            units_to_add = math.ceil(quantity / _pkg_pcs(p))
-
-        promo = None
-        if anim:
-            promo = anim.get("label") or anim.get("type")
-
-        price_per_kg = prices.get("pricePerUnitMeasure")
-        lowest_30d   = prices.get("lastPeriodLowestPrice")
-
-        dims = {k: pkg_info[k] for k in ("weight", "height", "length", "width") if pkg_info.get(k)}
-
-        scored.append((s, {
-            "name":        name,
-            "productId":   str(p.get("id") or ""),
-            "brand":       labels.get("brandLabel", "").strip(),
-            "size":        size,
-            "price":       f"{float(price_raw):.2f}€" if price_raw else None,
-            "price_per_kg": f"{float(price_per_kg):.2f}€/kg" if price_per_kg else None,
-            "lowest_30d":  f"{float(lowest_30d):.2f}€" if lowest_30d else None,
-            "promo":       promo,
-            "stock":       p.get("stock"),
-            "flags": {
-                "fresh":   flags.get("isFresh", False),
-                "organic": flags.get("isOrganic", False),
-                "french":  flags.get("isFrench", False),
-                "local":   flags.get("isLocal", False),
-                "new":     flags.get("isNew", False),
-            },
-            "origin":      chars.get("origin", ""),
-            "dims":        dims or None,
-            "complementary":   p.get("complementaryProducts") or [],
-            "substitutions":   p.get("substitutionProducts") or [],
-            "units_to_add": units_to_add,
-            "score":        round(s, 2),
-        }))
-
-    scored.sort(key=lambda x: x[0], reverse=True)
-    seen, results = set(), []
-    for _, c in scored:
-        if c["name"] not in seen:
-            seen.add(c["name"])
-            results.append(c)
-        if len(results) == top_n:
-            break
-    return results
 
 
 # ── Cart operations ────────────────────────────────────────────────────────────
