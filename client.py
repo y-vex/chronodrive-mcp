@@ -113,10 +113,19 @@ def authenticate() -> dict:
     hdrs = {**BASE_HEADERS, "Authorization": f"Bearer {bearer}", "x-api-key": API_KEY_CUSTOMER}
     customer_id = str(requests.get("https://api.chronodrive.com/v1/customers/me",
                                    headers=hdrs, timeout=15).json().get("id", ""))
-    cart_id = requests.get("https://api.chronodrive.com/v1/customers/me/carts",
-                           headers=hdrs, timeout=15).json()["content"][0]["id"]
 
-    session = {"bearer": bearer, "cart_id": cart_id, "customer_id": customer_id}
+    cart_id = ""
+    active_mode = BASE_HEADERS["x-chronodrive-site-mode"]
+    for mode in ["DRIVE", "HOME_DELIVERY"]:
+        h = {**hdrs, "x-chronodrive-site-mode": mode}
+        carts_resp = requests.get("https://api.chronodrive.com/v1/customers/me/carts",
+                                  headers=h, timeout=15).json()
+        cart_id = carts_resp.get("content", [{}])[0].get("id", "")
+        if cart_id:
+            active_mode = mode
+            break
+
+    session = {"bearer": bearer, "cart_id": cart_id, "customer_id": customer_id, "site_mode": active_mode}
     SESSION_FILE.touch(mode=0o600)
     SESSION_FILE.write_text(json.dumps(session, indent=2))
     return session
@@ -126,11 +135,16 @@ def _load_session() -> dict:
         return json.loads(SESSION_FILE.read_text())
     return authenticate()
 
+def _session_headers(session: dict, api_key: str) -> dict:
+    """Build headers using the session's active site mode."""
+    mode = session.get("site_mode", BASE_HEADERS["x-chronodrive-site-mode"])
+    return {**BASE_HEADERS, "x-chronodrive-site-mode": mode,
+            "Authorization": f"Bearer {session['bearer']}", "x-api-key": api_key}
+
 def ensure_session() -> dict:
     """Return valid session, re-authenticating transparently on 401."""
     session = _load_session()
-    hdrs = {**BASE_HEADERS, "Authorization": f"Bearer {session['bearer']}",
-            "x-api-key": API_KEY_CUSTOMER}
+    hdrs = _session_headers(session, API_KEY_CUSTOMER)
     r = requests.get("https://api.chronodrive.com/v1/customers/me", headers=hdrs, timeout=10)
     if r.status_code == 401:
         session = authenticate()
@@ -163,8 +177,7 @@ def search_products(query: str, session: dict) -> list[dict]:
 
 def add_item_to_cart(product_id: str, quantity: int, session: dict) -> bool:
     cart_id = session["cart_id"]
-    hdrs = {**BASE_HEADERS, "Authorization": f"Bearer {session['bearer']}",
-            "x-api-key": API_KEY_CART_ADD}
+    hdrs = _session_headers(session, API_KEY_CART_ADD)
     payload = {"content": [{"clientOrigin": "WEB|SEARCH|TG|/promotions",
                              "productId": product_id,
                              "quantity": quantity}],
@@ -178,16 +191,14 @@ def add_item_to_cart(product_id: str, quantity: int, session: dict) -> bool:
 
 def remove_item_from_cart(product_id: str, session: dict) -> bool:
     cart_id = session["cart_id"]
-    hdrs = {**BASE_HEADERS, "Authorization": f"Bearer {session['bearer']}",
-            "x-api-key": API_KEY_CART_ADD}
+    hdrs = _session_headers(session, API_KEY_CART_ADD)
     r = requests.delete(f"https://api.chronodrive.com/v1/carts/{cart_id}/items/{product_id}",
                         headers=hdrs, timeout=15)
     return r.ok
 
 def get_cart(session: dict) -> list[dict]:
     cart_id = session["cart_id"]
-    hdrs = {**BASE_HEADERS, "Authorization": f"Bearer {session['bearer']}",
-            "x-api-key": API_KEY_CART_ADD}
+    hdrs = _session_headers(session, API_KEY_CART_ADD)
     r = requests.get(f"https://api.chronodrive.com/v1/carts/{cart_id}",
                      headers=hdrs, timeout=15)
     r.raise_for_status()
@@ -209,8 +220,7 @@ def get_cart(session: dict) -> list[dict]:
 
 def reset_cart(session: dict) -> tuple[int, int]:
     cart_id = session["cart_id"]
-    hdrs = {**BASE_HEADERS, "Authorization": f"Bearer {session['bearer']}",
-            "x-api-key": API_KEY_CART_ADD}
+    hdrs = _session_headers(session, API_KEY_CART_ADD)
     r = requests.get(f"https://api.chronodrive.com/v1/carts/{cart_id}",
                      headers=hdrs, timeout=15)
     r.raise_for_status()
